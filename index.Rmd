@@ -1,0 +1,526 @@
+---
+title: "Portfolio Statistikkonsulten i Karlstad"
+author: "Niklas Forsberg, statistikkonsulten@gmail.com"
+date: '2018-03-29'
+output:
+  html_document:
+    theme: "cerulean"
+    toc: true
+    toc_float: true
+    toc_depth: 4
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE)
+library(tibble)
+library(rmarkdown)
+library(C50)
+library(plyr)
+library(dplyr)
+library(ggplot2)
+library(fivethirtyeight)
+library(scales)
+library(knitr)
+library(kableExtra)
+library(tidyr)
+library(readxl)
+library(cluster)
+library(ggfortify)
+library(purrr)
+```
+
+*I detta dokument kommer du att få ta del av ett axplock av de analyser som vi på Statistikkonsulten i Karlstad kan erbjuda dig som kund. Tveka inte att höra av dig till oss om du har några frågor!*
+
+* [**Produktionsanalys**](#produktionsanalys)
+
+Statistisk processtyrning med bl.a. styrdiagram för att skapa en tydlig bild över er produktion och för att identifiera eventuella systematiska avvikelser.
+
+* [**Kundanalys**](#kundanalys)
+
+Med olika statistiska metoder hjälper vi er identifiera vilka av era kunder som liknar varandra och vad deras kännetecken är. Denna kunskap kan sedan användas för att t.ex. rikta samma typ av marknadsföring till kunderna inom samma marknadssegment/kluster. 
+
+* [**Marknadsanalys**](#marknadsanalys)
+
+Med avstamp i marknadsundersökningar (som vi också kan bistå er med att genomföra) hjälper vi er att analysera datan för att ge er den kunskap ni behöver för att fatta rätt beslut.
+
+*  [**Prediktiv analys**](#prediktiv)
+
+Med hjälp av maskininlärningstekniker hjälper vi er att förstå era kunders beteende på ett djupare plan, vare sig det handlar om vilka kunder som kommer utnyttja sin försäkring eller ett visst typ av erbjudande.
+
+### <a name="produktionsanalys"></a> **1. Produktionsanalys**
+
+#### 1.1. Introduktion
+
+Du är produktionschef på ett tillverkningsföretag som gör stötdämpare till bilar.
+Sedan en tid tillbaka har du intresserat dig för statistisk processtyrning (SPC, statistical process control), för att få en bättre koll på din fabriks processer.
+
+**SPC handlar om att analysera och visualisera produktionsdata för att få en uppfattning om hur stabil processen är och för att identifiera eventuella systematiska avvikelser.** För detta ändamål används olika typer av *styrdiagram* (control charts) som analysverktyg. De anger gränser för det intervall av mätvärden där variationen i processen anses vara slumpmässig. Ligger observationer utanför dessa styrgränser sägs processen vara ”utom kontroll”, vilket innebär att den innehåller någon sorts källa till systematisk variation som gör att observationer hamnar utanför det intervall som anses vara naturligt. Märk väl att en process kan vara ostabil i positiv bemärkelse, dvs om vi t.ex. studerar antalet patientskador och de har minskat markant under en period.   
+
+#### 1.2. Visualisera resultat
+
+Som ett första steg att bygga en förståelse för kvalitén i tillverkningsprocessen, väljer du att titta tillbaka på den senaste 3-års perioden för att se hur många defekta produkter som tillverkats i din fabrik:
+
+<br>
+```{r fig.height=4, fig.width=6}
+library(dplyr)
+library(tidyr)
+library(qicharts2)
+
+set.seed(91)
+
+x <- "2015-01-01"
+day <- as.Date(x)
+months <- seq(day, length.out=36, by="1 month")
+
+n_defects<-as.integer(abs(round(rnorm(n = 36, mean = 5, sd = 3), digits = 0)))
+def_df <- data_frame(months = months, n_defects = n_defects)
+n_tillv_prod <- as.integer(abs(round(rnorm(n = 36, mean = 150, sd = 40), digits = 0)))
+def_df$n_tillv_prod <- n_tillv_prod
+
+(run_chart <- qic(x = months, n = n_tillv_prod, y = n_defects, data = def_df,
+multiply = 1000, 
+title = "Run chart för antalet defekta produkter per 1000 tillverkade",
+ylab = "Antal", xlab = "Månad"))
+```
+
+**Kommentar:** Diagrammet ovan kallas för ett ”Run chart” och är egentligen en helt vanlig tidsserie med månad på x-axeln och antal defekta produkter på y-axeln. Syftet med att börja med detta enkla diagram är för att **snabbt kunna identifiera om det finns några mönster eller ”onormala” avvikelser i datan.** Typiska sådana skulle vara flera punkter i rad med markant högre eller lägre värden än tidigare, en serie punkter som konsekvent ligger antingen under eller över medianvärdet (den heldragna svarta linjen i mitten av diagrammet), eller helt enkelt enskilda punkter som avviker mycket jämfört med de andra. 
+
+#### 1.3. Analysera resultat
+
+**I exemplet ovan syns tecken på icke-slumpmässig variation i de två ”spikarna” med höga värden under två enskilda månader.** För att vara helt säker på att punkterna trots allt inte ryms inom vad som statistiskt sett räknas som slumpmässig variation, tar du hjälp av styrdiagrammet ”u-chart”, som räknar fram styrgränser utifrån andelen defekter per producerad *enhet* (i detta fall antal stötdämpare/månad): 
+
+<br>
+```{r fig.height=4, fig.width=6}
+(u_chart <- qic(x = months, n = n_tillv_prod, y = n_defects,
+data = def_df, multiply = 1000,
+title = "U-chart antalet defekta produkter per 1000 tillverkade",
+ylab = "Antal", xlab = "Månad", chart="u"))
+
+```
+
+**Analys: U-chartet bekräftar dina farhågor att de två ”spikarna” var onormalt höga värden för antalet defekta produkter,** i och med att dessa punkter är markerade som röda. Du blir såklart intresserad av att gräva vidare och undersöka hur produktionsförutsättningarna såg ut dessa månader. Vad var det som orsakade de onormalt höga antalet defekta stötdämpare? Hade ni maskinstrul? Hade ni nya medarbetare som inte skolats in tillräckligt på maskinerna?
+
+Annan värdefull information som ges i u-chartet är medianvärdet på antalet defekta produkter, vilket är den svarta heldragna linjen med värdet 36,2 till höger. Dessutom ser du att den övre styrgränsen för den sista månaden i tidsserien är 84,7, vilket innebär att det kan tillverkas 85 defekta produkter (per 1000 tillverkade) på en månad, innan det skulle ses som ”onormalt” högt. **Du konstaterar att processen har en ganska stor inneboende variation.** Hög variation innebär låg förutsägbarhet, vilket aldrig är bra. Insatser bör sättas in för att skapa en mer förutsägbar process.
+
+#### 1.4. Faktabaserat beslut
+
+Ett medianvärde på 36,2 per 1000 tillverkade stötdämpare innebär en feltillverkningsgrad på knappt 4 %. Det tycker du är för mycket, för du vet hur kostsamt omarbete eller kassation är, så **du bestämmer att sätta igång ett förbättringsarbete i verksamheten.** Problemorsaker identifieras och åtgärder sätts in för att komma till rätta med problemen. Du är noggrann och ser till att fortlöpande mäta antalet defekta produkter varje månad under projekttiden för att se om resultatet förbättras.
+
+#### 1.5. Analys av förbättringsarbetet
+
+I slutet av året gör du en sammanställning av resultatet. I run chartet nedan har du angivit startpunkten för förbättringsarbetet.
+
+<br>
+```{r fig.height=4, fig.width=6}
+set.seed(91)
+library(dplyr)
+x2 <- "2018-01-01"
+day2 <- as.Date(x2)
+months2 <- seq(day2, length.out=12, by="1 month")
+n_defects2<-as.integer(abs(round(rnorm(n = 12, mean = 2, sd = 1), digits = 0)))
+n_tillv_prod2 <- as.integer(abs(round(rnorm(n = 12, mean = 150, sd = 40), digits = 0)))
+def2_df <- data_frame(months = months2, n_defects = n_defects2, n_tillv_prod = n_tillv_prod2)
+
+def_df2 <- bind_rows(def_df, def2_df)
+
+notes <- rep(NA, 48)
+notes[37] <- "Förbättringsarbete påbörjas"
+def_df2$notering <- notes
+
+(run_chart2 <- qic(x = months, n = n_tillv_prod, y = n_defects, data = def_df2,
+multiply = 1000, notes = notering,
+title = "Run chart för antalet defekta produkter per 1000 tillverkade",
+ylab = "Antal", xlab = "Månad"))
+```
+
+**Kommentar:** Det ser onekligen ut som att förbättringsarbetet haft effekt! Det framgår dels genom att **i princip samtliga punkter efter förbättringsarbetets start ligger under medianvärdet** (här kan vi misstänka att ett skifte i antal defekta produkter har skett), dels genom att medianlinjen nu ändrat färg och form till en röd streckad linje. Run chartet utvärderar automatiskt dataserien mot ett antal regler om mönster i datan, och om dessa mönster återfinns signalerar diagrammet detta genom att ändra skepnad på medianlinjen.
+För att stärka analysen kan vi jämföra värdena från och med förbättringsarbetets start med medianvärdet för perioden innan projektets start, för att testa för icke-slumpmässig variation under projektperioden:
+
+<br>
+```{r fig.height=4, fig.width=6}
+
+(run_chart2_med <- qic(x = months, n = n_tillv_prod, y = n_defects, data = def_df2,
+multiply = 1000, freeze = 36, part.labels = c("Baslinje", "Projektperiod"),
+title = "Run chart för antalet defekta produkter per 1000 tillverkade",
+ylab = "Antal", xlab = "Månad", decimals = 0))
+```
+
+**Kommentar:** Medianvärdet för baslinjeperioden är 37 defekta produkter per 1000 tillverkade. **Projektperioden kännetecknas av en onaturligt lång serie punkter under detta medianvärde.** Vi kan tydligt konstatera att ett skifte i antal defekta produkter har skett. När vi nu konstaterat att ett skifte skett, kan det vara intressant att jämföra siffrorna före och efter förbättringsarbetets start. Vi ”delar” därför diagrammet just vid denna brytpunkt:
+
+<br>
+```{r fig.height=4, fig.width=6}
+(run_chart2.2 <- qic(x = months, n = n_tillv_prod, y = n_defects, data = def_df2,
+multiply = 1000, part = 36,
+title = "Run chart för antalet defekta produkter per 1000 tillverkade",
+ylab = "Antal", xlab = "Månad", decimals = 0))
+```
+
+**Kommentar:** Det är tydligt att **antalet fel per månad har sjunkit sedan förbättringsarbetet startat.** Ytterligare framgår det ur diagrammet att projektperioden kännetecknas av slumpmässig variation, vilket gör det möjligt för oss att etablera styrgränser med hjälp av ett styrdiagram. Vi vet sedan tidigare att baslinjeperioden visar tecken på systematisk variation, men det var tidigt under perioden och du har utrett vad det var som orsakade de höga nivåerna av defekta produkter. Så för att etablera rimliga styrgränser även för baslinjeperioden kommer vi därför att ta bort dessa två månader från datasetet.
+
+<br>
+```{r}
+def_df3 <- def_df2[c(-3,-13) ,]
+
+(u_chart3 <- qic(x = months, n = n_tillv_prod, y = n_defects,
+data = def_df3, multiply = 1000, part = 34,
+title = "U-chart för antalet defekta produkter per 1000 tillverkade",
+ylab = "Antal", xlab = "Månad", chart="u", decimals = 0))
+```
+
+**Analys:** Styrdiagrammet visar att medelvärdet för **antalet fel per 1000 producerade stötdämpare har sjunkit från 34 till 15 efter att förbättringsarbetet sjösattes.** Det innebär nästan en halvering av antalet defekta produkter! Diagrammet visar även att tillverkningsprocessen nu är förutsägbar och att fabriken i framtiden kan förväntas producera mellan 0 och 49 defekta produkter per månad (per 1000 tillverkade). Det är en väsentlig förbättring jämfört med baslinjeperioden. **Det framgår även av diagrammet att variationen i processen minskat betydligt** under det senaste året (de gråfärgade styrgränserna är tajtare runt punkterna), vilket är ett kvitto på en ökad kvalité i tillverkningen.
+
+Fotnot: Sedan vi tog bort två värden ur originaltidsserien och omräknade styrgränserna i baslinjen har nu två nya värden flaggats som systematiskt avvikande, men det bortser vi ifrån då vi manipulerat tidsserien. 
+
+#### 1.6. Sammanfattning produktionsanalys
+Med hjälp av statistisk processtyrning (SPC) identifierade du att prestandan på ditt företags tillverkningsprocess inte var tillfredsställande. Du satte igång ett förbättringsarbete och följde upp resultatet löpande under projektperioden. Med styrdiagrammens hjälp kunde du bekräfta att insatserna nått avsedd effekt.  
+
+### <a name="kundanalys"></a> **2. Kundanalys**
+
+#### 2.1. Introduktion
+I detta exempel är du chef för en grossistfirma som säljer varor till matvarubutiker. Vi kommer analysera ett dataset som innehåller total försäljning under ett år till varje kund inom de sex olika kategorier av varor som ni säljer. Datasetet ser ut som följande:
+
+```{r}
+Wholesale_customers_data <- read_excel("Wholesale customers data.xlsx")
+cust_data <- Wholesale_customers_data[, 3:8]
+cust_data <- as_data_frame(cust_data)
+knitr::kable(head(cust_data, 10), "html", row.names = T)  %>% kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = F, position = "left")
+```
+
+```{r}
+cust_data <- scale(cust_data)
+```
+
+Målet med analysen är att dela upp kundbasen i mindre grupper, där kunderna inom en och samma grupp liknar varandra, och samtidigt skiljer sig åt från alla andra. Den statistiska analysmetod vi utnyttjar för detta ändamål är klustring. Vi kommer här att använda oss av k-medelvärdesklustring (k-means clustering).
+
+#### 2.2. Bestämma optimalt antal grupper av kunder (kluster)
+Det första vi måste göra är att bestämma hur många grupper vi ska dela upp kundbasen i.
+Det finns olika sätt att försöka bestämma bästa antalet kluster. Ett vanligt sätt är att beräkna hur väl varje observation "passar" i det kluster den tilldelats, i relation till andra kluster. Tekniken kallas för silhuettanalys och resultatet kan redovisas i diagramform som nedan:
+
+```{r fig.width=6, fig.height=4}
+sil_width <- map_dbl(2:8,  function(k){
+model <- pam(x = cust_data, k = k)
+model$silinfo$avg.width
+})
+
+sil_df <- data.frame(
+k = 2:8,
+sil_width = sil_width)
+
+ggplot(sil_df, aes(x = k, y = sil_width)) +
+geom_line() + geom_point() +
+scale_x_continuous(breaks = 2:8) + ylab("Medelvidd silhuett") + xlab("Antalet kluster")
+```
+
+Det vi kikar efter i silhuett-analysen är det klusterantal som genererar den största medelvidden på silhuetten. Av diagrammet framkommer tydligt att detta uppnås vid klusterantalet två. Vi har nu kommit fram till att vi ska anpassa en k-medelvärdesmodell med två stycken kluster. 
+
+#### 2.3. Resultat klusteranalys
+Vi går rakt på sak och kikar på ett diagram som visar resultatet av vår klustringsmodell:
+
+```{r fig.width=6, fig.height=4}
+set.seed(66)
+km_mod <- kmeans(cust_data, centers = 2, nstart = 20)
+autoplot(km_mod, frame = T, data=cust_data)
+```
+
+**Tolkning av klusterdiagrammet:** Det framgår tydligt att det ena klustret (kluster 2) är mer samlat än det andra, vilket betyder att kunderna inom detta kluster har ett köpmönster som ser mer lika ut än inom det andra klustret (kluster 1). I kluster 2 återfinns även de flesta av kunderna. Enkelt uttryckt har vi alltså ett kluster där majoriteten av kunderna finns och deras köpmönster ser väldigt lika ut. Det andra klustret (kluster 1) innehåller färre kunder, och kunderna här har ett mer diversifierat köpmönster och "liknar" därför inte varandra lika mycket.
+
+Till klusterdiagrammet ovan hade vi kunnat lägga till kundnamn för att enkelt kunna se vilka kunder som tillhör samma kluster. Ett annat sätt är att hämta klustertilhörigheten från modellen och koppla ihop den med vårt ursprungliga dataset. Det kan till exempel se ut så här: 
+
+```{r}
+cust_data_orig <- Wholesale_customers_data[, 3:8]
+kluster <- as_data_frame(km_mod$cluster)
+names(kluster) <- c("kluster")
+klust_final <- cbind(cust_data_orig, kluster)
+knitr::kable(head(klust_final, 10), "html", row.names = T)  %>% kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = F, position = "left")
+```
+
+Vi ser att de första nio kunderna i tabellen tillhör kluster 2. Vi kan även kika på medelvärdena inom de olika varukategorierna för respektive kluster, för att få en inblick i var de skiljer sig åt:
+
+```{r}
+knitr::kable(klust_final %>% group_by(kluster) %>% summarise_all(.funs = mean), "html") %>% kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = F, position = "left")
+```
+
+**Analys:** Det ser onekligen ut som att **kluster 1 utgörs av storköpare inom främst kategorierna Milk, Grocery och Detergents_paper.** Kunderna inom **kluster 2 köper generellt sett mer jämnt över varukategorierna** och i mindre volymer.
+
+#### 2.4. Sammanfattning kundanalys
+Med hjälp av klustring har du lyckats dela upp dina kunder i två mindre grupper. Genom att studera grupperna har du fått ökad kunskap om vad som kännetecknar respektive grupp och kan gå vidare med att anpassa marknadsinsatserna utefter dessa nya insikter! 
+
+### <a name="marknadsanalys"></a> **3. Marknadsanalys**
+
+#### 3.1. Introduktion
+Du är en restaurangägare som funderar på att starta upp en ny indisk matkedja i Sverige. Före du öppnar din första restaurang vill du undersöka om det finns en bra marknad för indisk mat. Är indisk mat populär? Kan folk tänka sig att betala lite mer för maten eller borde du satsa på att erbjuda prisvärda matupplevelser?
+
+I följande analys kommer vi titta på vilka förutsättningar som finns för en lyckad etablering av din restaurang i Sverige och vad som kännetecknar kunderna som gillar indisk mat.
+
+Av en händelse har du lyckats lägga vantarna på  en färsk marknadsundersökning där människor i Sverige har angett vad de tycker om indisk mat. Följande diagram visar hur respondenterna svarade på frågan hur mycket de tycker om indisk mat. Resultaten redovisas per landsdel för att underlätta en första jämförelse de emellan.
+
+```{r}
+set.seed(1)
+BL_full <- data_frame(Nord = rnorm(n = 250, mean = 3.15, sd = 2.25), 
+Väst = rnorm(n = 250, mean = 3.78, sd = 1.75), Öst = rnorm(n = 250, mean = 3.33, sd = 2.0), 
+Syd = rnorm(n = 250, mean = 2.89, sd = 1.8))
+BL_full<-round(abs(BL_full))
+BL_full$Syd[BL_full$Syd >= 5] <- 5
+BL_full$Nord[BL_full$Nord >= 5] <- 5
+BL_full$Öst[BL_full$Öst >= 5] <- 5
+BL_full$Väst[BL_full$Väst >= 5] <- 5
+
+BL_full$Syd[BL_full$Syd == 0] <- 1
+BL_full$Nord[BL_full$Nord == 0] <- 1
+BL_full$Öst[BL_full$Öst == 0] <- 1
+BL_full$Väst[BL_full$Väst == 0] <- 1
+
+BL_full_tidy <- gather(BL_full, key = Landsdel, value = Betyg)
+BL_full_tidy$Landsdel <- as.factor(BL_full_tidy$Landsdel)
+
+ggplot(BL_full_tidy, aes(x= Betyg,  group=Landsdel, label = sprintf("%0.2f", round(..prop.., digits = 0)))) + 
+  geom_bar(aes(y = ..prop..), stat="count", fill = "steelblue") +
+  geom_text(aes( label = scales::percent(round(..prop.., 2)), 
+                 y= ..prop.. ), stat= "count", vjust = -.5) +
+  labs(y = "Procent") +
+  facet_grid(~ Landsdel) +
+  scale_y_continuous(labels = scales::percent)
+```
+
+#### 3.2. Test för skillnad mellan landsdelar
+Vilken bra information! Tittar man på diagrammen ovan verkar det finnas bäst förutsättningar för en etablering i västra Sverige. Du skulle dock vilja bli ännu mer säker på din sak, och utför därför ett statistiskt test på om betyget på indisk mat skiljer sig åt mellan landsdelarna. Nedan anges resultatet för Kruskal-Wallis testet, som testar om medianbetyget mellan landsdelarna skiljer sig åt. 
+
+```{r}
+kruskal.test(Betyg ~ Landsdel, data = BL_full_tidy)
+```
+**Kommentar:** Perfekt! Nu fick du svart på vitt att **det finns skillnader mellan landsdelarna** avseende hur väl man tycker om indisk mat (p-värde < 0.05). Du är dock intresserad av att veta precis mellan vilka landsdelar som skillnaderna finns, så du gör parvisa jämförelser mellan varje region. 
+
+```{r}
+pairwise.wilcox.test(BL_full_tidy$Betyg, BL_full_tidy$Landsdel, p.adjust.method = "bonferroni")
+```
+**Kommentar:** Super! Det verkar som att **västra Sverige är den region som skiljer sig från de andra,** att man här helt enkelt gillar indisk mat mer än i övriga delar av landet (signifikant skillnad (p-värde < 0.05) mellan västra Sverige och övriga landsdelar).
+
+#### 3.3. Fördjupad marknadsanalys
+Med resultaten ovan i ryggen känner du dig trygg i beslutet att rikta in din etablering till västra Sverige. Men innan du tar ett slutgiltigt beslut vill du göra lite mer research för att lära dig mer om vem i västra Sverige som skulle kunna tänka sig äta på dina restauranger. Du bad om att få tillgång till all grunddata över svaren från de tillfrågade personerna i västra Sverige. Undersökningsföretaget var väldigt givmilt och skickade över datan till dig gratis. I undersökningen fångades följande information in:
+
+Variabel | Förklaring
+-------- | -----------------------------------
+Respondent_id | Unikt id för respondenten (personen som besvarade enkäten)
+Betyg | Respondentens uppfattning om indisk mat (skala 1-5, där 1 är "väldigt dålig mat" och 5 är "mycket god mat")
+Kunskap_mat_andra_kult | Respondentens kunskap om det andra matkulturer (gradvis skala (1 - mycket låg, 4 - väldigt hög))
+Intresse | Respondentens matintresse (gradvis skala (1 - mycket låg, 4 - väldigt hög))
+Kön | Respondentens kön (man/kvinna)
+Ålder | Respondentens ålder
+Hushållsinkomster | Respondentens hushålls inkomster (inkomstgrupp, gradvis skala (1 - mycket låg, 5 - väldigt hög))
+Utbildning | Respondentens utbildningsnivå (gradvis skala (låg till hög))
+
+```{r}
+food_world_cup1<-as_data_frame(food_world_cup)
+names(food_world_cup1)[names(food_world_cup1) == 'location'] <- 'loc'
+food_pac <- food_world_cup1 %>% dplyr::filter(loc == "Pacific")
+food_pac <- food_pac %>% select(c(2:7, india))
+food_pac <- food_pac %>% dplyr::mutate(Respondent_Id = 1:nrow(food_pac))
+food_pac$india <- factor(as.numeric(food_pac$india), ordered = T)
+food_pac$knowledge <- factor(food_pac$knowledge, ordered = T)
+food_pac$interest <- factor(food_pac$interest, ordered = T)
+food_pac$gender <- factor(as.numeric(as.factor(food_pac$gender)))
+food_pac$age <- factor(food_pac$age, ordered = T)
+food_pac$household_income <- factor(food_pac$household_income, ordered = T)
+food_pac$education <- factor(food_pac$education, ordered = T)
+food_pac <- dplyr::rename(food_pac, Kunskap_mat_andra_kult = knowledge, Intresse = interest, Kön = gender, Ålder = age, Hushållsinkomster = household_income, Utbildning = education, Betyg_indisk_mat = india)
+food_pac <- food_pac %>% dplyr::select(Respondent_Id, Betyg_indisk_mat, everything())
+food_pac <- na.omit(food_pac)
+```
+
+#### 3.4. Regressionsmodell för undersöka vad som påverkar betyget på indisk mat
+
+Du är intresserad att ta reda på om övriga egenskaper listade i datasetet (variablerna) kan förklara vilket betyg respondenterna ger på indisk mat. Eftersom din beroende variabel, "Betyg" (indisk mat), är en rangordnad variabel, anpassar du en ordinal logistisk regressionsmodell till datan. Dessutom är de flesta av de oberoende variablerna också rangordnade, vilket gör att vi vill testa för mer än ett linjärt samband mellan dem och den beroende variabeln. Återfinns polynomiella samband har vi fått ett kvitto på att sambandet mellan (t.ex.) kunskapen om andra matkulturer och det betyg respondenten ger indisk mat inte kan beskrivas enbart genom att hävda "ju mer kunskap, desto högre betyg", utan det betyg man ger kan variera med nivån av kunskap, dvs. sambandet följer inte en rak linje uppåt eller nedåt. Vi kodar om de oberoende variablerna så att även polynomiella samband kan upptäckas. Den logistiska regressionsmodellen har formeln:
+
+$$ logit \hspace{0.5ex} P(Y <= k\hspace{0.5ex}|\hspace{0.5ex} x) \hspace{0.5ex} = zeta_k - eta$$
+där 
+*k* är antalet kategorier hos den beroende variabeln och går från *1* till *k - 1*. *zeta* är interceptet för varje kategoristeg och *eta* är en linjär funktion av de oberoende variablerna (utan intercept).
+
+```{r message = FALSE}
+library(MASS)
+ord_m1 <- polr(Betyg_indisk_mat ~ Kunskap_mat_andra_kult +
+Intresse + Kön + Ålder + Hushållsinkomster + Utbildning, data = food_pac, Hess = T)
+```
+```{r}
+ctable <- coef(summary(ord_m1))
+p <- pnorm(abs(ctable[, "t value"]), lower.tail = FALSE) * 2
+(ctable <- cbind(ctable, "p value" = p))
+```
+**Tolkning av modellen:** Då vi studerar resultatet av regressionsmodellen konstaterar vi att flera variabler verkar sakna stark förklaringförmåga. **Undersökningen ger inget stöd för att kön, ålder och utbildningsnivå kan förklara** vad respondenten tycker om indisk mat. Vi ser dock att **variabeln Kunskap om andra matkulturer är mycket signifikant** (p-värde långt under 0.05) för den linjära (L) termen. Eftersom koefficienten (Value) för den linjära termen är positiv innebär det att ju högre kunskap respondenten har angett att den har, desto högre betyg kommer den också ge den indiska maten (i genomsnitt).
+
+**För variabeln Intresse är det istället den kvadratiska termen (Q) som är signifikant.** Eftersom dess koefficient är positiv innebär det att effekten av variabeln intresse ökar med högre värden. Vi kan  konstatera att flera termer för Kunskap om andra matkulturer samt Intresse inte är signifikanta, och skulle därför kunna exkluderas.
+
+Avseende **Hushållsinkomster visar modellen på förekomsten av en kubisk effekt (C),** vilket tyder på att sambandet med betyg kännetecknas av en kurva med "toppar och dalar", dvs. det varierar upp och ner mellan de olika inkomstskikten. Koefficienterna 1|2 , 2|3 etc. är intercepten för varje steg i den rangordnade modellen, de är inte viktiga för tolkningen och lämnas därför utan kommentar här.
+
+#### 3.5. Reducerad modell
+
+Eftersom flera variabler var icke-signifikanta plockar vi bort dessa och kör en ny reducerad modell med de oberoende variablerna Kunskap om andra matkulturer, Intresse och Hushållsinkomster ("modell 2"). Det är oftast en god idé att pröva köra enklare modeller. Visar de sig kunna förklara ett fenomen på ett ungefär lika bra sätt som en större modell är de oftast att föredra. En modell med färre parametrar är lättare att tolka.
+
+```{r}
+food_pac$Kunskap_mat_andra_kult <- as.numeric(food_pac$Kunskap_mat_andra_kult)
+food_pac$Intresse <- as.numeric(food_pac$Intresse)
+food_pac$Hushållsinkomster <- as.numeric(food_pac$Hushållsinkomster)
+ord_m2 <- polr(Betyg_indisk_mat ~ Kunskap_mat_andra_kult + poly(Intresse, q = 3) + poly(Hushållsinkomster, q = 3), data = food_pac, Hess = T)
+
+ctable2 <- coef(summary(ord_m2))
+p2 <- pnorm(abs(ctable2[, "t value"]), lower.tail = FALSE) * 2
+(ctable2 <- cbind(ctable2, "p value" = p2))
+
+ord_m3 <- polr(Betyg_indisk_mat ~ Kunskap_mat_andra_kult, data = food_pac, Hess = T)
+detach("package:MASS", character.only = TRUE)
+```
+
+**Tolkning av modell 2:** Vår mer kompakta modell 2 innehåller nu enbart signifikanta oberoende variabler (p-värde < 0.05 för minst någon av termerna L (poly 1), Q (poly 2) och C (poly 3)). Inför anpassningen av denna modell kodades Kunskap om andra matkulturer om till en numerisk variabel på intervallskalenivå, då analysen av modell 1 visade att det endast var ett linjärt samband som förelåg mellan denna variabel och betyg på indisk mat. Du vill nu kolla ifall den reducerade modellen har högre eller lägre förklaringsförmåga än den "kompletta" modell 1.
+
+#### 3.6. Val av modell
+
+För att jämföra modell 1 (komplett) och 2 (reducerad) med varandra använde du Bayesian information criterion (BIC) , som är en estimator av den relativa kvalitén mellan två eller fler statistiska modeller som anpassats till samma data. Ju lägre värde på BIC desto bättre. Du kollar därför vilken modell som har det lägsta värdet.
+
+```{r echo = T}
+BIC(ord_m1)
+BIC(ord_m2)
+```
+**Kommentar:** Av resultatet framgår att kvalitén i modell 2 är högre än i modell 1 och därför väljer du att gå vidare med den förstnämnda.
+
+#### 3.7. Prediktion av kundpreferenser - vem gillar indisk mat mest?
+
+För att ta reda på vad som kännetecknar de kunder som med störst sannolikhet skulle svara att de tycker indisk mat är "jättegott", skapade du ett eget dataset med alla tänkbara kombinationer av förklaringsvariablerna i modellen och lät den prediktera utfallet.
+Nedan redovisas de 15 hypotetiska kunderna med störst sannolikhet att ange att de tycker indisk mat är jättegott. Att jobba med sannolikheter istället för tolkning av modellens "råa" parametrar underlättar tolkningen av modellen. 
+
+\newline
+
+```{r message = F}
+newdat <- data_frame(Intresse = rep(1:4, times = 20), Hushållsinkomster = rep(1:5, each = 2, times = 8), Kunskap_mat_andra_kult = rep(1:4, each = 20))
+
+newdat_pred<-cbind(newdat, predict(ord_m2, newdat, type = "probs"))
+newdat_pred_tidy <- newdat_pred %>% gather(key = Betyg, value = Sannolikhet, -Intresse, -Hushållsinkomster, -Kunskap_mat_andra_kult)
+newdat_pred_tidy$Betyg <- as.numeric(newdat_pred_tidy$Betyg)
+knitr::kable(head(newdat_pred_tidy %>% dplyr::filter(Betyg == 5) %>% arrange(desc(Sannolikhet)), 15), "html", digits = 3) %>% kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = F, position = "left") %>% scroll_box(width = "550px", height = "300px")
+```
+
+<br>
+
+**Analys:** Genomgående för dessa 15 kunder är att **samtliga anger att de har hög eller väldigt hög kunskap om olika matkulturer i världen** (angett 3 eller 4 på en skala 1-4). Avseende hushållsinkomsterna och intresset för mat syns en mycket större variation bland nivåerna. Det verkar alltså vara kunskapen om andra matkulturer som är den viktigaste egenskapen hos dina presumtiva kunder. Personer som själva anser sig ha god kunskap om andra matkulturer är de som kommer att besöka dina restauranger.
+
+#### 3.8. Sammanfattning av marknadsanalysen
+
+Satsa på etablering i ett område där kunskapen om olika matkulturer är hög - då kommer du att hitta dina kunder! Ålder, kön, utbildningsnivå och hushållsinkomster är av underordnad betydelse.
+
+### <a name="prediktiv"></a> 4. Prediktiv analys
+
+#### 4.1. Introduktion
+Som kundansvarig på ett telekombolag är du intresserad av att veta vilka kunder som är mest troliga att avsluta sitt affärsförhållande med ditt företag. Kan du ta reda på vilka detta är kan du sätta in kundvårdande insatser i tid för att behålla kunderna.
+
+Du har information samlat om dina kunder i ett dataset:
+
+```{r message = FALSE, echo = FALSE}
+library(readr)
+WA_Fn_UseC_Telco_Customer_Churn <- read_csv("WA_Fn-UseC_-Telco-Customer-Churn.csv", 
+col_types = cols(Churn = col_factor(levels = c("No", 
+"Yes")), Dependents = col_factor(levels = c("No", 
+"Yes")), DeviceProtection = col_factor(levels = c("No", 
+"No internet service", "Yes")), InternetService = col_factor(levels = c("No", 
+"DSL", "Fiber optic")), MultipleLines = col_factor(levels = c("No", 
+"No phone service", "Yes")), OnlineBackup = col_factor(levels = c("No", 
+"No internet service", "Yes")), OnlineSecurity = col_factor(levels = c("No", 
+"No internet service", "Yes")), PaperlessBilling = col_factor(levels = c("No", 
+"Yes")), Partner = col_factor(levels = c("No", 
+"Yes")), PhoneService = col_factor(levels = c("No", 
+"Yes")), StreamingMovies = col_factor(levels = c("No", 
+"No internet service", "Yes")), StreamingTV = col_factor(levels = c("No", 
+"No internet service", "Yes")), TechSupport = col_factor(levels = c("No", 
+"No internet service", "Yes"))))
+churn <- WA_Fn_UseC_Telco_Customer_Churn
+churn <- churn[complete.cases(churn), ]
+
+churn$gender <- factor(churn$gender, levels = c("Female", "Male"))
+churn$Contract <- factor(churn$Contract, levels = c("Month-to-month", "One year", "Two year"))
+churn$PaymentMethod <- factor(churn$PaymentMethod, levels = c("Electronic check", "Mailed check", "Bank transfer (automatic)", "Credit card (automatic)"))
+
+churn$OnlineSecurity <- mapvalues(churn$OnlineSecurity, from = c("No internet service"), to = c("No"))
+churn$OnlineBackup <- mapvalues(churn$OnlineBackup, from = c("No internet service"), to = c("No"))
+churn$DeviceProtection <- mapvalues(churn$DeviceProtection, from = c("No internet service"), to = c("No"))
+churn$TechSupport <- mapvalues(churn$TechSupport, from = c("No internet service"), to = c("No"))
+churn$StreamingTV <- mapvalues(churn$StreamingTV, from = c("No internet service"), to = c("No"))
+churn$StreamingMovies <- mapvalues(churn$StreamingMovies, from = c("No internet service"), to = c("No"))
+
+churn$MultipleLines <- as.factor(mapvalues(churn$MultipleLines, from=c("No phone service"), to=c("No")))
+
+churn$SeniorCitizen <- as.factor(mapvalues(churn$SeniorCitizen, from=c("0","1"), to=c("No", "Yes")))
+
+churn$customerID <- NULL
+churn$TotalCharges <- NULL
+
+churn <- as_data_frame(churn)
+knitr::kable(head(churn, 10), "html") %>% kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = F, position = "left") %>% scroll_box(width = "750px", height = "300px")
+```
+<br>
+
+#### 4.2. Träna modeller
+Efter att ha gjort lite städning i datasetet (kodat om variabler, tagit bort tomma rader etc.) är det dags för att träna olika modeller på vår data, för att se vilken algoritm som presterar bäst och som sedan kommer bli vår "kandidatmodell" för att förutspå vilka kunder som kommer lämna affärsförhållandet.
+
+I detta exempel tränar vi fem olika modeller: glmnet, random forest (rf), gbm, xgboost, earth. Bakom de kryptiska namnen gömmer sig olika maskininlärningsalgoritmer som är kända för att prestera bra på data där analysen går ut på att klassificera observationer, vilket är vårt mål i denna analys. Resultatet av modellanpassningarna är följande:
+```{r message = FALSE, echo = FALSE, fig.width=6, fig.height=4}
+library(caret)
+set.seed(66)
+myControl <- trainControl(
+  method = "cv",
+  number = 10,
+  summaryFunction = twoClassSummary,
+  classProbs = T,
+  verboseIter = FALSE
+)
+
+model_glmnet <- train(Churn ~ ., data = churn,
+  metric = "ROC", tuneGrid = expand.grid(alpha = c(0, 0.1, 0.5, 1), lambda = seq(0.0001, 1 ,length = 20)),
+  method = "glmnet",
+  trControl = myControl
+  )
+
+model_rf <- train(Churn ~ ., data = churn,
+  metric = "ROC",
+  method = "ranger", tuneGrid = data.frame(mtry = c(2, 3, 5, 7), splitrule = c("gini", "extratrees"), min.node.size = 1),
+  trControl = myControl
+  )
+  
+model_gbmModel <- train(Churn ~ ., data = churn, method = "gbm", metric="ROC", trControl = myControl, verbose = FALSE, tuneLength = 5)
+
+model_xgboost<- train(Churn ~ ., data = churn, method = "xgbLinear", metric = "ROC", trControl = myControl, verbose = FALSE, tuneLenght = 5)
+
+earthModel <- train(Churn ~ ., data = churn, method = "earth", glm=list(family=binomial), metric="ROC", trControl = myControl, tuneLength=5)
+
+model_list <- list(gbm = model_gbmModel, xgboost = model_xgboost, glmnet = model_glmnet, rf = model_rf, earth = earthModel)
+
+resamples <- resamples(model_list)
+
+bwplot(resamples, metric = "ROC")
+```
+
+**Kommentar diagram:** Från ovanstående boxplotdiagram framgår att modellen med gbm som algoritm presterade bäst i genomsnitt. Den har ett ROC-värde på 85%, vilket kan sammanfattas som en bra modell. Ett ROC-värde på 100% skulle innebära att algoritmen skulle prediktera varje observation precis rätt (ej uppnåeligt).
+
+Generellt sett kan man säga att alla modeller som presterar minst 80% i ROC är okej modeller. Ett annat mått för att bedöma modellers träffsäkerhet är Sensitivity (ej redovisat ovan), vilket i detta exempel avser andelen kunder som rätt predikterades att lämna affärsförhållandet. Här presterar gbm-modellen ett värde på 91%, vilket alltså innebär att 9/10 gånger klassificerade modellen dessa kunder rätt. **Vi har altså en modell med hög förmåga att kunna förutspå vilka kunder som kommer lämna oss!**   
+
+Det kan dock noteras att gbm-modellen presterade ett resultat med ganska stor spridning. Troligen kan ytterligare trimning av modellen göras för att få den ännu bättre. Vi väljer dock här att gå vidare med den som vår kandidatmodell utan vidare finjustering.
+
+#### 4.3. Prediktera 
+För att illustrera den praktiska nyttan med modellen, har jag slumpat ut några kunder ur vårt dataset och låtit modellen prediktera utfallet på Churn (alltså om kunden lämnat affärsförhållandet eller ej).    
+
+```{r}
+set.seed(66)
+
+samp <- as_data_frame(sample_n(churn, size = 10))
+samp_facit <- samp[, c("Churn")]
+samp_utan_churn <- samp[, 1:18]
+
+pred_Churn <- predict(model_gbmModel, samp_utan_churn)
+
+pred_churn_table <- cbind(samp, pred_Churn)
+
+knitr::kable(dplyr::select(pred_churn_table, Churn, pred_Churn, everything()), "html") %>% kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = F, position = "left") %>% scroll_box(width = "750px", height = "300px")
+```
+
+<br>
+**Analys:** För exemplet ovan med tio stycken kunder ser vi att vår prediktionsmodell **prickade rätt i 9/10 fall** (jämför kolumnen pred_churn med Churn). Du har nu alltså en modell med hög prediktionsförmåga som du kan använda dig av för att identifiera kunder som riskerar att lämna affärsförhållandet.
+
+#### 4.4. Sammanfattning prediktiv analys
+Du tränade olika maskininlärningsalgoritmer på din data för att hitta en modell som kan förutspå vilka kunder som är mest troliga att lämna affärsförhållandet. Du utvärderade modellernas prestanda och valde den med bäst förmåga. Den valda modellen förväntas förutspå rätt utfall i 9/10 fall. Med dess hjälp vet du nu vilka kunder du behöver lägga krutet på! 
+
