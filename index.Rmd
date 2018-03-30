@@ -454,6 +454,7 @@ churn <- as_data_frame(churn)
 knitr::kable(head(churn, 10), "html") %>% kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = F, position = "left") %>% scroll_box(width = "750px", height = "300px")
 ```
 <br>
+
 #### 4.2. Träna modeller
 
 Efter att ha gjort lite städning i datasetet (kodat om variabler, tagit bort tomma rader etc.) är det dags för att träna olika modeller på vår data, för att se vilken algoritm som presterar bäst och som sedan kommer bli vår "kandidatmodell" för att förutspå vilka kunder som kommer lämna affärsförhållandet.
